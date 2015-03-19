@@ -1,9 +1,11 @@
+var ok = require('assert').ok
+
 function Area (x, y, bottom, right) { // :: Int -> Int -> Int -> Int -> Area
     this.left = x
     this.top = y
     this.bottom = bottom
     this.right = right
-    this.height = this.top- bottom
+    this.height = this.top - bottom
     this.width = right - this.left
     this.area = this.width * this.height
 }
@@ -51,9 +53,13 @@ Area.prototype.splitX = function (split) { // :: [Area, Area]
 }
 
 Area.prototype.splitY = function (split) { // :: [Area, Area]
+    var bottom
+    if (!isFinite(this.bottom)) {
+        bottom = split
+    }
     return [
         new Area(this.left, split, this.bottom, this.right),
-        new Area(this.left, this.top, this.bottom + split, this.right)
+        new Area(this.left, this.top, bottom || this.bottom + split, this.right)
     ]
 }
 
