@@ -1,0 +1,36 @@
+{
+    "name":             "r-tree",
+    "version":          "0.0.0",
+    "author":           "Alan Gutierrez <alan@prettyrobots.com>",
+    "description":      "An R-Tree.",
+    "keywords":
+    [
+                        "btree", "leveldb", "levelup", "binary", "mvcc",
+                        "database", "json", "r-tree", "concurrent", "persistence"
+    ],
+    "contributors":     [],
+    "homepage":         "https://bigeasy.github.io/r-tree",
+    "bugs":             "https://github.com/bigeasy/r-tree/issues",
+    "licenses":
+    [{
+                        "type": "MIT",
+                        "url": "http://github.com/bigeasy/r-tree/raw/master/LICENSE"
+    }],
+    "repository":
+    {
+                        "type": "git",
+                        "url": "http://github.com/bigeasy/r-tree.git"
+    },
+    "main":             "r-tree",
+    "dependencies":
+    {
+    },
+    "devDependencies":
+    {
+                        "proof":                "0.0.51"
+    },
+    "scripts":
+    {
+                        "test": "proof platform win32 && proof test */*/*.t.js || t/test"
+    }
+}

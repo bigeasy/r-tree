@@ -1,0 +1,17 @@
+Advance
+
+In-memory forward iterator for use with the Strata b-tree MVCC tool collection.
+
+    Discussion:     http://bigeasy.github.io/advance/issues/1
+
+    Documentation:  http://bigeasy.github.io/advance
+    Source:         http://github.com/bigeasy/advance
+    Issues:         http://github.com/bigeasy/advance/issues
+
+    Install:        `npm install advance`
+
+    License:        MIT
+
+To learn everything you want to know about Advance start here:
+
+    http://bigeasy.github.io/advance
