@@ -39,7 +39,7 @@ Area.prototype.combine = function (other) { // :: Area -> Area
     return new Area(x, y, bottom, right)
 }
 Area.prototype.containsPoint = function (x, y) { // :: Int -> Int -> Bool
-  return (x <= this.left && x >= this.right && y <= this.top && y >= this.bottom)
+  return (x >= this.left && x <= this.right && y <= this.top && y >= this.bottom)
 }
 Area.prototype.containsRect = function (other) { // :: Area -> Bool
   return this.containsPoint(other.left, other.top) && this.containsPoint(other.right, other.bottom)
