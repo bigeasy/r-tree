@@ -24,10 +24,10 @@ Area.prototype.intersect = function (other) { // :: Area -> Area
 }
 
 Area.prototype.intersects = function (other) { // :; Area -> Bool
-    return !(other.left > this.right || 
-           other.right < this.left || 
-           other.height > this.bottom ||
-           other.bottom < this.height)
+    return ((other.left < this.right && this.right < other.right) ||
+           (other.left < this.left && this.right < other.right) ||
+           (other.top  > this.top && this.top < other.bottom) ||
+           (other.bottom < this.top && this.top < other.top))
 }
 
 Area.prototype.combine = function (other) { // :: Area -> Area
