@@ -24,10 +24,10 @@ Area.prototype.intersect = function (other) { // :: Area -> Area
 }
 
 Area.prototype.intersects = function (other) { // :; Area -> Bool
-    return !(other.left > this.right || 
-           other.right < this.left || 
-           other.height > this.bottom ||
-           other.bottom < this.height)
+    return ((other.left < this.right && this.right < other.right) ||
+           (other.left < this.left && this.right < other.right) ||
+           (other.top  > this.top && this.top < other.bottom) ||
+           (other.bottom < this.top && this.top < other.top))
 }
 
 Area.prototype.combine = function (other) { // :: Area -> Area
@@ -39,7 +39,7 @@ Area.prototype.combine = function (other) { // :: Area -> Area
     return new Area(left, top, bottom, right)
 }
 Area.prototype.containsPoint = function (x, y) { // :: Int -> Int -> Bool
-  return (x <= this.left && x >= this.right && y <= this.top && y >= this.bottom)
+  return (x >= this.left && x <= this.right && y <= this.top && y >= this.bottom)
 }
 Area.prototype.containsRect = function (other) { // :: Area -> Bool
   return this.containsPoint(other.left, other.top) && this.containsPoint(other.right, other.bottom)
