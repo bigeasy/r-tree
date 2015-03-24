@@ -3,7 +3,7 @@
 require ('proof')(4, prove)
 
 function prove (assert) {
-    var rects = require('../..')
+    var rects = require('../../area.js')
 
     var a = new rects.Area(0, 5, 0, 5)
     var b = new rects.Area(0, 7, 0, 7)
