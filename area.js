@@ -1,8 +1,8 @@
 var ok = require('assert').ok
 
-function Area (x, y, bottom, right) { // :: Int -> Int -> Int -> Int -> Area
-    this.left = x
-    this.top = y
+function Area (left, top, bottom, right) { // :: Int -> Int -> Int -> Int -> Area
+    this.left = left
+    this.top = top
     this.bottom = bottom
     this.right = right
     this.height = this.top - bottom
