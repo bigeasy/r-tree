@@ -11,12 +11,12 @@ function Area (left, top, bottom, right) { // :: Int -> Int -> Int -> Int -> Are
 }
 
 Area.prototype.intersect = function (other) { // :: Area -> Area 
-  left = Math.max(this.left, other.x)
-  top = Math.min(this.top, other.y)
+  left = Math.max(this.left, other.left)
+  top = Math.min(this.top, other.top)
   right = Math.min(this.right, other.right)
   bottom = Math.max(this.bottom, other.bottom)
-  width = right - x
-  height = y - bottom
+  width = right - left
+  height = top - bottom
   if (width < 0 || height < 0) {
     return null
   }
@@ -32,11 +32,11 @@ Area.prototype.intersects = function (other) { // :; Area -> Bool
 
 Area.prototype.combine = function (other) { // :: Area -> Area
     ok(other instanceof Area, 'other instanceof Area')
-    var x = Math.min(this.left, other.x)
-    var y = Math.max(this.top, other.y)
+    var left = Math.min(this.left, other.left)
+    var top = Math.max(this.top, other.top)
     var bottom = Math.min(this.bottom, other.bottom)
     var right = Math.max(this.right, other.right)
-    return new Area(x, y, bottom, right)
+    return new Area(left, top, bottom, right)
 }
 Area.prototype.containsPoint = function (x, y) { // :: Int -> Int -> Bool
   return (x >= this.left && x <= this.right && y <= this.top && y >= this.bottom)
