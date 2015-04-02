@@ -13,8 +13,4 @@ function prove (assert) {
     assert(b.containsPoint(2,2), true , "Square(0,7,0,7) contains point(2,2)")
     assert(b.containsPoint(0,0), true , "Square(0,7,0,7) contains point(0,0)")
     assert(b.containsPoint(8,8), false , "Square(0,7,0,7) doesn't contain point(8,8)")
-    assert(b.containsRect(a), true , "Square(0,7,0,7) contains Square(0,5,0,5)")
-    assert(d.containsRect(a), false , "Square(15,5,0,20) doesn't intersect Square(0,5,0,5)")
-
-
 }
