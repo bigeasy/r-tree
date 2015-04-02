@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-require ('proof')(3, prove)
+require ('proof')(4, prove)
 
 function prove (assert) {
     var rects = require('../../area.js')
