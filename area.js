@@ -13,8 +13,8 @@ function Area (left, top, bottom, right) { // :: Int -> Int -> Int -> Int -> Are
 Area.prototype.intersect = function (other) { // :: Area -> Area 
   var left = Math.max(this.left, other.left),
       top = Math.min(this.top, other.top),
-      right = Math.min(this.right, other.right),
       bottom = Math.max(this.bottom, other.bottom),
+      right = Math.min(this.right, other.right),
       width = right - left,
       height = top - bottom
   if (width < 0 || height < 0) {
