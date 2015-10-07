@@ -5,3 +5,5 @@ Hilbert clustering: http://www.academia.edu/3027346/Clustering_in_Hilbert_R_Tree
 
 Google implementation:
 https://code.google.com/p/pyrtree/source/browse/pyrtree/rtree.py
+
+Neat 2D ideas: https://github.com/mourner/rbush/blob/master/rbush.js
