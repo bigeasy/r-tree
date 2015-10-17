@@ -21,5 +21,5 @@ function prove (assert) {
     assert(area.splitX(5), [
         new rects.Area(-Infinity, Infinity, -Infinity, 5),
         new rects.Area(5, Infinity, -Infinity, Infinity)
-    ], "Split x by 5")
+    ], "Split x with infinite bounds by 5")
 }

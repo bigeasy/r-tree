@@ -20,5 +20,5 @@ function prove (assert) {
     assert(area.splitY(10), [
         new rects.Area(-Infinity, 10, -Infinity, Infinity),
         new rects.Area(-Infinity, Infinity, 10, Infinity)
-    ], "Split x by 10")
+    ], "Split y by 10 with infinite bounds")
 }
