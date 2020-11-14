@@ -19,7 +19,7 @@
     "repository":
     {
                         "type": "git",
-                        "url": "http://github.com/bigeasy/r-tree.git"
+                        "url": "bigeasy/r-tree"
     },
     "main":             "r-tree",
     "dependencies":
