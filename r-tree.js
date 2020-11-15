@@ -2,14 +2,14 @@ class RTree {
     constructor (destructible, options) {
     }
 
-    _insert (trampoline, area, shape, entries) {
+    _insert (trampoline, area, shape, properties, entries) {
         const { path, miss } = this._choose(area, entries[0])
         entries.pop().forEach(entry => entry.release())
         if (miss != null) {
             trampoline.promised(async () => {
                 entries[0].push(await this.load(miss))
                 entries.unshift([])
-                this.insert(trampoline, shape
+                this._insert(trampoline, area, shape, properties, entries)
             })
         } else {
             for (const { page, index } of path) {
