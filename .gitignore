@@ -1,4 +1,5 @@
-/node_modules
-/.proof.out
+/.nyc_output
+/.wiseguy
 /coverage
-/t/tmp
+/docs
+/node_modules
