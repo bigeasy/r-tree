@@ -1,7 +1,7 @@
 require ('proof')(4, prove)
 
 function prove (assert) {
-    var rects = require('../../area.js')
+    var rects = require('../area.js')
 
     var a = new rects.Area(-10, 5, -5, 0)
     var b = new rects.Area(0, 7, 0, 7)

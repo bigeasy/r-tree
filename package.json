@@ -29,6 +29,6 @@
     "main":                 "r-tree",
     "scripts":
     {
-                            "test": "proof */*/*.t.js"
+                            "test": "proof */*.t.js"
     }
 }
