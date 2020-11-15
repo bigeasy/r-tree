@@ -1,36 +1,34 @@
 {
-    "name":             "r-tree",
-    "version":          "0.0.1",
-    "author":           "Alan Gutierrez <alan@prettyrobots.com>",
-    "description":      "A file backed two-dimensional R-Tree index.",
+    "name":                 "r-tree",
+    "version":              "0.0.1",
+    "description":
+
+      "A file backed two-dimensional R-Tree index.",
+
     "keywords":
     [
-                        "btree", "leveldb", "levelup", "binary", "mvcc",
-                        "database", "json", "r-tree", "concurrent", "persistence"
+                            "btree", "leveldb", "levelup", "binary", "mvcc",
+                            "database", "json", "r-tree", "concurrent", "persistence"
     ],
-    "contributors":     [],
-    "homepage":         "https://bigeasy.github.io/r-tree",
-    "bugs":             "https://github.com/bigeasy/r-tree/issues",
-    "licenses":
-    [{
-                        "type": "MIT",
-                        "url": "http://github.com/bigeasy/r-tree/raw/master/LICENSE"
-    }],
+    "author":               "Alan Gutierrez <alan@prettyrobots.com>",
+    "contributors":         [],
+    "homepage":             "https://bigeasy.github.io/r-tree",
+    "bugs":                 "https://github.com/bigeasy/r-tree/issues",
     "repository":
     {
-                        "type": "git",
-                        "url": "bigeasy/r-tree"
+                            "type": "git",
+                            "url": "bigeasy/r-tree"
     },
-    "main":             "r-tree",
     "dependencies":
     {
     },
     "devDependencies":
     {
-                        "proof":                "^9.0.2"
+                            "proof":                        "^9.0.2"
     },
+    "main":                 "r-tree",
     "scripts":
     {
-                        "test": "proof */*/*.t.js"
+                            "test": "proof */*/*.t.js"
     }
 }
