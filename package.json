@@ -14,6 +14,7 @@
     "contributors":         [],
     "homepage":             "https://bigeasy.github.io/r-tree",
     "bugs":                 "https://github.com/bigeasy/r-tree/issues",
+    "license":              "MIT",
     "repository":
     {
                             "type": "git",
@@ -21,6 +22,9 @@
     },
     "dependencies":
     {
+                            "destructible":                 "7.0.0-alpha.14",
+                            "magazine":                     "6.0.0-alpha.0",
+                            "reciprocate":                  "0.0.1"
     },
     "devDependencies":
     {

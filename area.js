@@ -62,6 +62,12 @@ class Area {
             new Area(this.left, this.top, bottom || this.bottom + split, this.right)
         ]
     }
+
+    static INFINATE = {
+        constainsRect () { return true },
+        containsPoint () { return true },
+        intersects () { return true }
+    }
 }
 
 exports.Area = Area
