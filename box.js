@@ -1,4 +1,4 @@
-class Area {
+class Box {
     constructor (left, top, bottom, right) { // :: Int -> Int -> Int -> Int -> Area
         this.left = left
         this.top = top
@@ -19,7 +19,7 @@ class Area {
       if (width < 0 || height < 0) {
         return null
       }
-      return new Area(left, top, bottom, right)
+      return new Box(left, top, bottom, right)
     }
 
     intersects (other) { // :; Area -> Bool
@@ -29,37 +29,37 @@ class Area {
                (other.bottom < this.top && this.top < other.top))
     }
 
-    combine (other) { // :: Area -> Area
+    combine (other) { // :: Box -> Box
         var left = Math.min(this.left, other.left)
         var top = Math.max(this.top, other.top)
         var bottom = Math.min(this.bottom, other.bottom)
         var right = Math.max(this.right, other.right)
-        return new Area(left, top, bottom, right)
+        return new Box(left, top, bottom, right)
     }
 
     containsPoint (x, y) { // :: Int -> Int -> Bool
       return (x >= this.left && x <= this.right && y <= this.top && y >= this.bottom)
     }
 
-    containsRect (other) { // :: Area -> Bool
+    containsRect (other) { // :: Box -> Bool
       return this.containsPoint(other.left, other.top) && this.containsPoint(other.right, other.bottom)
     }
 
-    splitX (split) { // :: [Area, Area]
+    splitX (split) { // :: [Box, Box]
         return [
-            new Area(this.left, this.top, this.bottom, split),
-            new Area(split, this.top, this.bottom, this.right)
+            new Box(this.left, this.top, this.bottom, split),
+            new Box(split, this.top, this.bottom, this.right)
         ]
     }
 
-    splitY (split) { // :: [Area, Area]
+    splitY (split) { // :: [Box, Box]
         var bottom
         if (!isFinite(this.bottom)) {
             bottom = split
         }
         return [
-            new Area(this.left, split, this.bottom, this.right),
-            new Area(this.left, this.top, bottom || this.bottom + split, this.right)
+            new Box(this.left, split, this.bottom, this.right),
+            new Box(this.left, this.top, bottom || this.bottom + split, this.right)
         ]
     }
 
@@ -70,4 +70,4 @@ class Area {
     }
 }
 
-exports.Area = Area
+exports.Box = Box
