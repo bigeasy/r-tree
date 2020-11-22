@@ -1,21 +1,92 @@
+const assert = require('assert')
 const fs = require('fs').promises
+const fileSystem = require('fs')
 const path = require('path')
+const Cache = require('magazine')
+const Box = require('./box').Box
+const Turnstile = require('turnstile')
+const coalesce = require('extant')
+const Fracture = require('./fracture')
+Turnstile.Set = require('turnstile/set')
 
-const ROOT = {
-    value: { items: [{ id: '0.0' }] }
+const Interrupt = require('interrupt')
+
+function find (items, id) {
+    let mid, low = 0, high = items.length - 1
+
+    while (low <= high) {
+        mid = low + ((high - low) >>> 1)
+        const compare = id - items[mid].id
+        if (compare < 0) high = mid - 1
+        else if (compare > 0) low = mid + 1
+        else return { found: true, index: mid }
+    }
+
+    return { found: false, index: low }
 }
+
+const { recorder, Player } = require('transcript')
+
+const serialize = function () {
+    const serialize = recorder(() => 0)
+    return function (nodes) {
+        const buffers = []
+        for (const { method, node = {}, parts = [] } of nodes) {
+            const json = JSON.stringify({ method, node: { ...node, parts: [] } })
+            const buffer = serialize([ Buffer.from(json) ].concat(parts))
+            buffers.push(buffer)
+        }
+        return Buffer.concat(buffers)
+    }
+} ()
+
+
+const ROOT = { value: { items: [{ child: '0.0' }] } }
 
 class RTree {
     static _instance = 0
 
-    constructor (options) {
-        this.cache = options.cache
-        this._cache = options.cache.cache([ options.directory, RTree._instance++ ])
+    static Error = Interrupt.create('RTree.Error', {
+        INVALID_NODE_ADD: 'invalid duplicate node, node with id %d already exists in page'
+    })
+
+    constructor (destructible, options) {
+        function createTurnstile (name) {
+            if (turnstiles[name]) {
+                return turnstiles[name]
+            }
+            const subDestructible = destructible.durable(name)
+            const turnstile = new Turnstile(subDestructible.durable('turnstile'))
+            subDestructible.destruct(() => {
+                subDestructible.ephemeral('shutdown', async () => {
+                    await turnstile.terminate()
+                })
+            })
+            return turnstile
+        }
+        this.cache = options.cache || new Cache
+        this._checksum = function () { return 0 }
+        this._recorder = recorder(this._checksum)
+        this._cache = this.cache.magazine([ options.directory, RTree._instance++ ])
+        this._openedAt = Date.now()
+        this._version = 0
+        this._balance = { split: 5, merge: 2 }
+        const turnstiles = coalesce(options.turnstiles, {})
+        this._fracture = {
+            administrative: new Fracture(createTurnstile('administrative'), this._commit, this),
+            append: new Fracture(createTurnstile('append'), this._append, this)
+        }
+        // **TODO** Common namespaced turnstiles.
+        this._turnstile = new Turnstile(destructible.durable('turnstile'), { turnstiles: 1 })
         this.directory = options.directory
+        this._commitId = 0
+        destructible.destruct(() => {
+            this._turnstile.terminate()
+        })
     }
 
     static async open (destructible, options) {
-        const rtree = new RTree(options)
+        const rtree = new RTree(destructible, options)
         return destructible.ephemeral('open', async function () {
             if (options.create) {
                 await rtree._create()
@@ -47,27 +118,29 @@ class RTree {
     //
     async _create () {
         await fs.mkdir(path.resolve(this.directory, '0.0'), { recursive: true })
-        await fs.writeFile(path.resolve(this.directory, '0.0', '0.0'), JSON.stringify([{ id: '0.1', box: [ 0, 0, 0, 0 ] }]))
+        const branch = serialize([{ method: 'add', node: { id: 0, child: '0.1', box: [] } }])
+        await fs.writeFile(path.resolve(this.directory, '0.0', 'page'), branch)
         await fs.mkdir(path.resolve(this.directory, '0.1'), { recursive: true })
-        await fs.writeFile(path.resolve(this.directory, '0.1', '0.0'), JSON.stringify([]))
+        const leaf = serialize([{ method: 'leaf' }])
+        await fs.writeFile(path.resolve(this.directory, '0.1', 'page'), leaf)
     }
 
-    _choose (area, entries) {
-        let entry = ROOT
+    _choose (box, path) {
+        let index = 0, node = { child: '0.0' }
         for (;;) {
-            const node = entry.value.items[index]
-            let entry = this._cache.hold(node.id)
+            const entry = this._cache.hold(node.child)
             if (entry == null) {
-                return node.id
+                return node.child
             }
-            entries.push(entry)
             if (entry.value.leaf) {
+                path.push({ entry })
                 return null
             } else {
+                let maxIncrease = Infinity, maxArea = Infinity
                 for (let i = 0, I = entry.value.items.length; i < I; i++) {
                     const item = entry.value.items[i]
-                    const box = new Box(item.area)
-                    const extended = box.extend(item.box)
+                    const branch = new Box(item.box)
+                    const extended = new Box(item.box).extend(box.points)
                     const increase = extended.area - box.area
                     if (increase < maxIncrease) {
                         maxIncrease = increase
@@ -79,6 +152,8 @@ class RTree {
                         }
                     }
                 }
+                node = entry.value.items[index]
+                path.push({ entry, node })
             }
         }
     }
@@ -120,22 +195,145 @@ class RTree {
     // if it gets merged out of existence while we are iterating.
 
     //
-    async _write ({ log, path }) {
-        for (const entry of log) {
-            switch (entry.method) {
-            }
-        }
-        path.forEach(part => part.entry.release())
+    _enqeue (version, log, writes, path) {
+        const commit = this._fracture.administrative.enqueue('commit', promise => {
+            return { logs: [], promise, id: this._commitId++ }
+        })
+        commit.logs.push({ version, log, path })
+        writes[commit.id] = commit
     }
 
-    _insert (trampoline, area, shape, properties, entries) {
-        const miss = this._choose(area, entries[0])
-        entries.pop().forEach(entry => entry.release())
+    async _wally (filename, entries, converter) {
+        const { _recorder: recorder } = this, buffers = []
+        const handle = await fs.open(filename, 'a')
+        try {
+            let offset = (await handle.stat()).size
+            const buffers = []
+            for (const entry of entries) {
+                const { header, body } = converter(offset, entry)
+                const encoded = recorder([ header ])
+                offset += encoded.length + body.length
+                buffers.push(encoded, body)
+            }
+            handle.appendFile(Buffer.concat(buffers))
+            handle.sync()
+        } finally {
+            await handle.close()
+        }
+    }
+
+    async _headers (filename) {
+    }
+
+    async _commit ({ value }) {
+        const ahead = []
+        for (const entry of value.logs) {
+            const { log, version } = entry
+            const grouped = {}
+            for (const entry of log) {
+                grouped[entry.id] = true
+            }
+            ahead.push({ version: version, nodes: log, pages: Object.keys(grouped) })
+        }
+        const filename = path.resolve(this.directory, 'wal')
+        await this._wally(filename, ahead, function (offset, { version, pages, nodes }) {
+            const header = Buffer.from(JSON.stringify({ version, pages: Object.keys(pages) }))
+            return { header: header, body: serialize(nodes) }
+        })
+        value.completed = true
+    }
+
+    async __commit ({ value }) {
+        const { _recorder: recorder } = this, buffers = []
+        const map = new Map
+        const writes = {}
+        for (const entry of value.logs) {
+            const { log, version } = entry
+            const grouped = {}
+            for (const entry of log) {
+                grouped[entry.id] = true
+                writes[entry.id] || (writes[entry.id] = [])
+                writes[entry.id].push(entry)
+            }
+            map.set(version, grouped)
+            const commit = Buffer.from(JSON.stringify({ version, pages: Object.keys(grouped) }))
+            buffers.push(recorder([ commit ]))
+        }
+        const filename = path.resolve(this.directory, 'commits', value.logs[0].version.join('-'))
+        await fs.mkdir(path.dirname(filename), { recursive: true })
+        await fs.writeFile(filename, Buffer.concat(buffers))
+        const appends = {}
+        for (const id in writes) {
+            const append = this._fracture.append.enqueue(id, promise => {
+                return { writes: [], promise, id: this._commitId++ }
+            })
+            append.writes.push.apply(append.writes, writes[id])
+            appends[append.id] = appends
+        }
+        await this.flush(appends)
+        await fs.unlink(filename)
+        value.completed = true
+    }
+
+    async _write ({ key, value }) {
+        const buffers = []
+        for (const write of value.writes) {
+            buffers.append(serialize(write))
+        }
+        fs.appendFile(path.resolve(this.directory, key, 'page'), Buffer.concat(buffers))
+        value.completed = true
+    }
+
+    async flush (writes) {
+        for (const key in writes) {
+            if (!writes[key].completed) {
+                await writes[key].promise
+            }
+        }
+    }
+
+    // **TODO** Gather by version and clear if you see a rollback.
+    // **TODO** Determine the greatest node id per page.
+    async load (id) {
+        const player = new Player(() => 0)
+        const readable = fileSystem.createReadStream(path.resolve(this.directory, id, 'page'))
+        const page = { id: id, items: [], leaf: false, destroyed: false  }
+        for await (const chunk of readable) {
+            for (const entry of player.split(chunk)) {
+                const header = JSON.parse(entry.parts.splice(0, 1).toString())
+                switch (header.method) {
+                case 'leaf': {
+                        page.leaf = true
+                    }
+                    break
+                case 'add': {
+                        const { index, found } = find(page.items, header.node.id)
+                        RTree.Error.assert(! found, [ 'INVALID_NODE_ADD', header.node.id ])
+                        header.node.parts.push.apply(header.node.parts, entry.parts.slice(1))
+                        page.items.splice(index, 0, header.node)
+                    }
+                    break
+                }
+            }
+        }
+        return this._cache.hold(id, page)
+    }
+
+
+    // Insert is recursed until all the pages necessary to perform the insert
+    // are cached with references held. The `_chose` method descends the tree to
+    // choose a leaf reading pages from the cache. If it has a cache miss, it
+    // returns the id of the missed page.
+
+    //
+    _insert (trampoline, box, parts, writes, paths) {
+        paths.unshift([])
+        const miss = this._choose(box, paths[0])
+        paths.pop().forEach(part => part.entry.release())
         if (miss != null) {
             trampoline.promised(async () => {
-                entries[0].push(await this.load(miss))
-                entries.unshift([])
-                this._insert(trampoline, area, shape, properties, entries)
+                paths[0].push({ entry: await this.load(miss) })
+                this._insert(trampoline, box, parts, writes, paths)
             })
         } else {
             // All inserts and adjustments of areas must be synchronous, the
@@ -185,19 +383,16 @@ class RTree {
             //
             // Now you have custom replays so you won't be able to reuse your
             // b-tree serialization.
-            const node = {
-                id: leaf.nextNodeId++,
-                box: new Box(box.trbl),
-                properties: properties,
-                shape: new Shape(shape).points
-            }
+
+            // Okay, they are no longer indempotent, they are now versioned.
+            const version = [ this._openedAt, this._version++ ]
+            const node = { id: leaf.nextId++, box: box.points }
             log.push({
                 method: 'add',
-                pageId: leaf.id,
-                nodeId: node.id,
-                properties: properties,
-                shape: shape.points,
-                box: box.trbl
+                version: version,
+                id: leaf.id,
+                node: node,
+                parts: parts
             })
             // Tempting to have the log played in memory and then repeated as
             // part of recovery, but no, let's just do the work here.
@@ -207,13 +402,13 @@ class RTree {
                 // Does this look indempotent to you?
                 log.push({
                     method: 'extend',
-                    pageId: branch.id,
-                    nodeId: node.id,
-                    box: box.trbl
+                    version: version,
+                    id: branch.id,
+                    node: { page: branch.id, node: node.id, box: box.points }
                 })
                 // Tempting to have the log played in memory and then repeated
                 // as part of recovery, but no, let's just do the work here.
-                node.box.extend(box)
+                node.box = new Box(node.box).extend(box.points).points
             }
 
             // Well, we can split now too, can't we? For this implementation we
@@ -233,7 +428,7 @@ class RTree {
 
             for (let i = 0, I = paths[0].length; i < I; i++) {
                 const { entry: { value: page }, node } = paths[0][i]
-                if (page.items.length > this._size.split) {
+                if (page.items.length > this._balance.split) {
                     const { reduced, created } = this._split(page)
                     log.push({ method: 'create', pageId: created.id })
                     const boxes = {
@@ -296,13 +491,12 @@ class RTree {
                 }
             }
 
-            this._enqueue(log, path[0], writes)
+            this._enqeue(version, log, writes, paths[0])
         }
     }
 
-    insert (trampoline, shape, properties, entries = [[], []]) {
-        const area = new Area(shape)
-        this._insert(trampoline, area, shape, properties, [[]])
+    insert (trampoline, box, parts, writes = {}) {
+        this._insert(trampoline, box, parts, writes, [[]])
     }
 }
 

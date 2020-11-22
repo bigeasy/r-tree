@@ -1,29 +1,46 @@
 class Box {
     constructor (points) {
-        this.min = points[0].slice()
-        this.max = points[0].slice()
-        for (let i = 1, I = points.length; i < I; i++) {
-            this.extend(points[i])
-        }
+        this._points = []
+        this.extend(points)
     }
 
-    extend (point) {
-        this.min[0] = Math.min(point[0], this.min[0])
-        this.min[1] = Math.min(point[1], this.min[1])
-        this.max[0] = Math.max(point[0], this.max[0])
-        this.max[1] = Math.max(point[1], this.max[1])
+    extend (points) {
+        for (const point of points) {
+            if (this._points.length == 0) {
+                this._points = [ point.slice(), point.slice() ]
+            } else {
+                this._points[0][0] = Math.min(point[0], this._points[0][0])
+                this._points[0][1] = Math.min(point[1], this._points[0][1])
+                this._points[1][0] = Math.max(point[0], this._points[1][0])
+                this._points[1][1] = Math.max(point[1], this._points[1][1])
+            }
+        }
         return this
     }
 
     get points () {
-        return [ this.min, this.max ]
+        return this._points
+    }
+
+    get height () {
+        return Math.abs(this._points[1][1] - this._points[0][1])
+    }
+
+    get width () {
+        return Math.abs(this._points[1][0] - this._points[0][0])
+    }
+
+    get area () {
+        return this._points.length != 0 ? this.height * this.width : 0
     }
 
     contains (box) {
-        return box.min[0] >= this.min[0] &&
-            box.min[0] >= this.min[1] &&
-            box.max[0] <= this.max[0] &&
-            box.max[1] <= this.max[1]
+        return box._points.length == 2 &&
+            this._points.length == 2 &&
+            box._points[0][0] >= this._points[0][0] &&
+            box._points[0][0] >= this._points[0][1] &&
+            box._points[1][0] <= this._points[1][0] &&
+            box._points[1][1] <= this._points[1][1]
     }
 }
 

@@ -23,8 +23,14 @@
     "dependencies":
     {
                             "destructible":                 "7.0.0-alpha.14",
+                            "interrupt":                    "11.0.0-alpha.1",
+                            "extant":                       "^1.0.20",
+                            "keyify":                       "^2.0.5",
                             "magazine":                     "6.0.0-alpha.0",
-                            "reciprocate":                  "0.0.1"
+                            "reciprocate":                  "0.0.1",
+                            "transcript":                   "0.1.0",
+                            "turnstile":                    "6.0.0-alpha.25",
+                            "verbatim":                     "0.1.0"
     },
     "devDependencies":
     {

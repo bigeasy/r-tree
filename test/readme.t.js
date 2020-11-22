@@ -1,6 +1,8 @@
 require('proof')(1, async okay => {
+    const Box = require('../box').Box
     const RTree = require('..')
 
+    const Trampoline = require('reciprocate')
     const Destructible = require('destructible')
     const Cache = require('magazine')
 
@@ -23,6 +25,13 @@ require('proof')(1, async okay => {
         cache: new Cache,
         create: true
     })
+
+    const trampoline = new Trampoline
+
+    rtree.insert(trampoline, new Box([[ 0, 0 ], [ 5, 5 ]]), [ Buffer.from('a') ])
+    while (trampoline.seek()) {
+        await trampoline.shift()
+    }
 
     await destructible.destroy().rejected
 
