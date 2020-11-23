@@ -25,15 +25,15 @@ function find (items, id) {
     return { found: false, index: low }
 }
 
-const { recorder, Player } = require('transcript')
+const { Recorder, Player } = require('transcript')
 
 const serialize = function () {
-    const serialize = recorder(() => 0)
+    const recorder = Recorder.create(() => 0)
     return function (nodes) {
         const buffers = []
         for (const { method, node = {}, parts = [] } of nodes) {
             const json = JSON.stringify({ method, node: { ...node, parts: [] } })
-            const buffer = serialize([ Buffer.from(json) ].concat(parts))
+            const buffer = recorder([[ Buffer.from(json) ].concat(parts)])
             buffers.push(buffer)
         }
         return Buffer.concat(buffers)
@@ -66,7 +66,7 @@ class RTree {
         }
         this.cache = options.cache || new Cache
         this._checksum = function () { return 0 }
-        this._recorder = recorder(this._checksum)
+        this._recorder = Recorder.create(this._checksum)
         this._cache = this.cache.magazine([ options.directory, RTree._instance++ ])
         this._openedAt = Date.now()
         this._version = 0
@@ -211,7 +211,7 @@ class RTree {
             const buffers = []
             for (const entry of entries) {
                 const { header, body } = converter(offset, entry)
-                const encoded = recorder([ header ])
+                const encoded = recorder([[ header ]])
                 offset += encoded.length + body.length
                 buffers.push(encoded, body)
             }
