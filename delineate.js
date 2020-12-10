@@ -12,9 +12,23 @@ let latch
 
 class Delineate {
     static Error = Interrupt.create('Delineate.Error', {
-        'BLOCK_SHORT_READ': 'incomplete read of block',
-        'BLOCK_MISSING': 'block did not parse correct',
-        'INVALID_CHECKSUM': 'block contained an invalid checksum'
+        'IO_ERROR': {},
+        'OPEN_ERROR': {
+            code: 'IO_ERROR',
+            message: 'unable to open file'
+        },
+        'BLOCK_SHORT_READ': {
+            code: 'IO_ERROR',
+            message: 'incomplete read of block'
+        },
+        'BLOCK_MISSING': {
+            code: 'IO_ERROR',
+            message: 'block did not parse correctly'
+        },
+        'INVALID_CHECKSUM': {
+            code: 'IO_ERROR',
+            message: 'block contained an invalid checksum'
+        }
     })
 
     static Stream = class extends Readable {
@@ -29,32 +43,36 @@ class Delineate {
             this._remainder = Buffer.alloc(0)
             this._player = new Player(this.delineate._checksum)
             this._log = 0
+            this._filename = null
         }
 
-        _callback (callback, e = null) {
-            return (error, ...vargs) => {
-                if (error) {
-                    this.destroy(coalesce(e, error))
-                } else {
-                    callback.apply(this, vargs)
+        _calledback (error, ...vargs) {
+            const continued = vargs.pop()
+            if (error != null) {
+                debugger
+                vargs.unshift({ '#callee': Delineate.Stream.prototype._calledback })
+                this.destroy(new Delineate.Error(Delineate.Error.options.apply(Delineate.Error, vargs)))
+            } else {
+                try {
+                    continued.apply(this, vargs)
+                } catch (error) {
+                    this.destroy(error)
                 }
             }
         }
 
-        _close (callback, error = null) {
-            fileSystem.close(this._fd, this._callback(callback, error))
-        }
-
         _read () {
             if (this._blocks.length == 0) {
-                if (this._index == this.delineate._logs.length) {
-                    this.push(null)
-                } else {
-                    if (this._fd != null) {
-                        this._close(() => {
+                if (this._fd != null) {
+                    fileSystem.close(this._fd, (error) => {
+                        this._calledback(error, 'CLOSE_ERROR', [ error ], { filename: this._filename }, () => {
                             this._fd = null
                             this._read()
                         })
+                    })
+                } else {
+                    if (this._index == this.delineate._logs.length) {
+                        this.push(null)
                     } else {
                         this._log = this.delineate._logs[this._index++]
                         this._blocks = this.delineate._blocks[this._log][this._keyified].slice()
@@ -62,32 +80,33 @@ class Delineate {
                     }
                 }
             } else if (this._fd == null) {
-                const filename = path.join(this.delineate.directory, String(this._log))
-                fileSystem.open(filename, 'r', this._callback(fd => {
-                    this._fd = fd
-                    this._read()
-                }))
+                this._filename = path.join(this.delineate.directory, String(this._log))
+                fileSystem.open(this._filename, 'r', (error, fd) => {
+                    this._calledback(error, 'OPEN_ERROR', [ error ], { filename: this._filename }, () => {
+                        this._fd = fd
+                        this._read()
+                    })
+                })
             } else {
                 const block = this._blocks.shift()
                 const buffer = Buffer.alloc(block.length)
-                fileSystem.read(this._fd, buffer, 0, buffer.length, block.position, this._callback((read) => {
-                    let entries
-                    try {
+                fileSystem.read(this._fd, buffer, 0, buffer.length, block.position, (error, read) => {
+                    this._calledback(error, 'READ_ERROR', [ error ], { filename: this._filename }, () => {
                         Delineate.Error.assert(read == buffer.length, 'BLOCK_SHORT_READ')
-                        entries = this._player.split(buffer)
+                        const entries = this._player.split(buffer)
                         Delineate.Error.assert(entries.length == 1, 'BLOCK_MISSING')
-                    } catch (error) {
-                        this.destroy(error)
-                        return
-                    }
-                    this.push(entries[0].parts[1])
-                }))
+                        this.push(entries[0].parts[1])
+                    })
+                })
             }
         }
 
         _destroy (error, callback) {
             if (this._fd != null) {
-                this._close(callback, error)
+                fileSystem.close(this._fd, e => {
+                    this._fd = null
+                    this._destroy(e || error, callback)
+                })
             } else if (error) {
                 callback(error)
             } else {
@@ -154,8 +173,6 @@ class Delineate {
 
     //
     async write (entries, converter) {
-        // **TODO** Capitalize `Recorder` and have a `create` method.
-        // **TODO** Sip an entry from Player, read only a single part.
         const { _recorder: recorder } = this
         const log = this._logs[this._logs.length - 1]
         const filename = path.join(this.directory, String(log))
@@ -175,8 +192,8 @@ class Delineate {
                 position += block.length
                 buffers.push(block)
             }
-            handle.appendFile(Buffer.concat(buffers))
-            handle.sync()
+            await handle.appendFile(Buffer.concat(buffers))
+            await handle.sync()
             for (const key in positions) {
                 this._blocks[log][key] || (this._blocks[log][key] = [])
                 this._blocks[log][key].push.apply(this._blocks[log][key], positions[key])

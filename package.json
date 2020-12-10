@@ -23,8 +23,8 @@
     "dependencies":
     {
                             "cadence":                      "4.0.0-alpha.0",
-                            "destructible":                 "7.0.0-alpha.14",
-                            "interrupt":                    "11.0.0-alpha.1",
+                            "destructible":                 "7.0.0-alpha.15",
+                            "interrupt":                    "11.0.0-alpha.3",
                             "extant":                       "^1.0.20",
                             "keyify":                       "^2.0.5",
                             "magazine":                     "6.0.0-alpha.0",

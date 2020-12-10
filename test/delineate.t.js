@@ -1,4 +1,4 @@
-require('proof')(8, async okay => {
+require('proof')(11, async okay => {
     const Delineate = require('../delineate')
 
     const { Recorder, Player } = require('transcript')
@@ -258,6 +258,8 @@ require('proof')(8, async okay => {
         }
 
         okay(gathered, [], 'shifted to empty')
+
+        await delineate.shift()
     }
 
     {
@@ -295,6 +297,81 @@ require('proof')(8, async okay => {
             errors.push(error.code)
         }
 
-        okay(errors, [ 'ENOENT' ], 'open error')
+        okay(errors, [ 'IO_ERROR' ], 'open error')
+    }
+
+    {
+        const delineate = await Delineate.open({ directory })
+
+        await delineate.write(writes, writable)
+
+        const readable = new Delineate.Stream(delineate, 0)
+
+        const errors = []
+
+        const player = new Player(() => 0), gathered = []
+
+        try {
+            for await (const block of readable) {
+                for (const entry of player.split(block)) {
+                    readable.destroy(new Error('foo'))
+                }
+            }
+        } catch (error) {
+            errors.push(error.message)
+        }
+
+        okay(errors, [ 'foo' ], 'user initiated destroy with error')
+    }
+
+    // Checking to make sure the above behavior is correct.
+    {
+        const fileSystem = require('fs')
+        const readable = fileSystem.createReadStream(__filename)
+        try {
+            for await (const block of readable) {
+                readable.destroy(new Error('oof'))
+            }
+        } catch (error) {
+            console.log(error.stack)
+        }
+    }
+
+    {
+        const delineate = await Delineate.open({ directory })
+
+        await delineate.write(writes, writable)
+
+        const readable = new Delineate.Stream(delineate, 0)
+
+        const player = new Player(() => 0), gathered = []
+        const iterator = readable[Symbol.asyncIterator]()
+        await iterator.next()
+        await new Promise((resolve, reject) => {
+            require('fs').close(readable._fd, error => {
+                if (error) {
+                    reject(error)
+                } else {
+                    resolve()
+                }
+            })
+        })
+        readable.destroy()
+        const error = await new Promise(resolve => readable.once('error', resolve))
+        okay(error.code, 'EBADF', 'destroy with bad close')
+    }
+
+    {
+        const delineate = await Delineate.open({ directory })
+        delineate._blocks[0][0][0].length = 0
+        const readable = new Delineate.Stream(delineate, 0), errors = []
+        try {
+            const player = new Player(() => 0)
+            for await (const block of readable) {
+            }
+        } catch (error) {
+            errors.push(error.code)
+        }
+        okay(errors, [ 'IO_ERROR' ], 'assertion error')
     }
 })
