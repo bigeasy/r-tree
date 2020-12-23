@@ -23,15 +23,17 @@
     "dependencies":
     {
                             "cadence":                      "4.0.0-alpha.0",
-                            "destructible":                 "7.0.0-alpha.15",
+                            "destructible":                 "7.0.0-alpha.22",
                             "extant":                       "^1.0.20",
-                            "interrupt":                    "11.0.0-alpha.3",
+                            "fracture":                     "0.3.0-alpha.12",
+                            "interrupt":                    "11.0.0-alpha.11",
                             "keyify":                       "^2.0.5",
-                            "magazine":                     "6.0.0-alpha.0",
-                            "reciprocate":                  "0.0.2",
+                            "magazine":                     "6.0.0-alpha.1",
+                            "reciprocate":                  "0.0.3",
                             "transcript":                   "0.1.3",
-                            "turnstile":                    "6.0.0-alpha.25",
-                            "verbatim":                     "0.1.0"
+                            "turnstile":                    "6.0.0-alpha.37",
+                            "verbatim":                     "0.1.1",
+                            "writeahead":                   "0.0.2"
     },
     "devDependencies":
     {

@@ -1,3 +1,57 @@
+## Tue Dec 15 06:56:59 CST 2020
+
+With the write-ahead log it would seem that things like moves become much
+simplier. You remove from one page, add to another, but because of the
+write-ahead structure, when either page load navigates they will see the add or
+remove. When I started this paragraph I thought I'd be describing a special
+structure they would both see, but no, one would see their remove and one would
+see their add.
+
+In the case of the r-tree we still need to descend pages to do a move which you
+would imagine you would do in pairs to keep from holding onto too much cached
+material, so you probably want to add to the write-ahead log that you're in the
+middle of a re-distribution.
+
+## Tue Dec 15 06:48:31 CST 2020
+
+What we're really doing when we block appenders from housekeeping is not
+blocking a strand from proceding, we're blocking the invocation of a user
+function, and we're processing the enqueued information in the housekeeper.
+Removing a keyed queue from a set of turnsitles does not have to block the
+turnstile, we can puck the queue out of the "fracture" and into another. This
+would be a method called intercept and it would return the entry and then you'd
+have to release it.
+
+## Tue Dec 15 06:32:41 CST 2020
+
+Recall that Fracture had something to do with sharing turnstiles. I can see
+deadlock in how this is apporached. If a merge needs to block three pages, if we
+have two housekeeping threads we would need six appender threads. We would have
+to be aware of this when we create our shared fractures.
+
+## Mon Dec 14 15:50:30 CST 2020
+
+Reloading. Trying to recall what was on my mind with `Fracture`. I was at
+Robert's on Elysian Fields, standing in line, thinking about it. I thought about
+it pretty hard and there's probably something there that folds back into Strata.
+
+All I can recall is that there was a dependency concept, that a queue of events
+would not be able to wait on itself. The housekeeping queue could not submit
+appends back into itself. There would have to be enough workers in an append
+queue to accommodate it.
+
+Looking at Strata there is the bit where all the queued writes are gathered
+so they can be written after a page split or merge. The split or merge was based
+on the page in memory. The page in memory is based on any of the appends that
+are in memory. Those appends need to be flushed with split or merge. They need
+to be synchronously removed from the queued writes prior to any asynchronous
+action. Once asynchronous actions start, new writes can be appended to their
+queues.
+
+It is hard to describe, but it is pretty well understood if I look at the code
+for just a few minutes. I believe Fracture is trying to capture this in an
+interface.
+
 ## Sat Nov 21 14:52:44 CST 2020
 
 The simplicity of the write-ahead log makes me want to imagine something more

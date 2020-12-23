@@ -2,6 +2,8 @@ require('proof')(1, async okay => {
     const Box = require('../box').Box
     const RTree = require('..')
 
+    const Turnstile = require('turnstile')
+    const Fracture = require('fracture')
     const Trampoline = require('reciprocate')
     const Destructible = require('destructible')
     const Cache = require('magazine')
@@ -19,21 +21,34 @@ require('proof')(1, async okay => {
     // How about we create it if it doesn't exist and report that it was
     // created? You can simply suppress the create behavior.
 
+
+    const turnstile = new Turnstile(destructible.durable('turnstile'))
+
     //
-    const rtree = await RTree.open(destructible, {
-        directory: directory,
-        cache: new Cache,
-        create: true
+    destructible.rescue($ => $(), 'test', async () => {
+        const rtree = await RTree.open(destructible.durable($ => $(), 'r-tree'), {
+            turnstile: turnstile,
+            directory: directory,
+            cache: new Cache,
+            create: true
+        })
+
+        const trampoline = new Trampoline
+
+        rtree.insert(trampoline, new Box([[ 0, 0 ], [ 5, 5 ]]), [ Buffer.from('a') ])
+        while (trampoline.seek()) {
+            await trampoline.shift()
+        }
+
+        rtree.insert(trampoline, new Box([[ 5, 5 ], [ 10, 10 ]]), [ Buffer.from('b') ])
+        while (trampoline.seek()) {
+            await trampoline.shift()
+        }
+
+        destructible.destroy()
     })
 
-    const trampoline = new Trampoline
-
-    rtree.insert(trampoline, new Box([[ 0, 0 ], [ 5, 5 ]]), [ Buffer.from('a') ])
-    while (trampoline.seek()) {
-        await trampoline.shift()
-    }
-
-    await destructible.destroy().rejected
+    await destructible.rejected
 
     okay('done')
 })

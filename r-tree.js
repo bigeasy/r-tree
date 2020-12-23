@@ -4,10 +4,10 @@ const fileSystem = require('fs')
 const path = require('path')
 const Cache = require('magazine')
 const Box = require('./box').Box
-const Turnstile = require('turnstile')
 const coalesce = require('extant')
-const Fracture = require('./fracture')
-Turnstile.Set = require('turnstile/set')
+const Fracture = require('fracture')
+const Destructible = require('destructible')
+const WriteAhead = require('writeahead')
 
 const Interrupt = require('interrupt')
 
@@ -31,10 +31,19 @@ const serialize = function () {
     const recorder = Recorder.create(() => 0)
     return function (nodes) {
         const buffers = []
-        for (const { method, node = {}, parts = [] } of nodes) {
-            const json = JSON.stringify({ method, node: { ...node, parts: [] } })
-            const buffer = recorder([[ Buffer.from(json) ].concat(parts)])
-            buffers.push(buffer)
+        for (const entry of nodes) {
+            if ('method' in entry) {
+                const { method, page = null, json, node, parts = [] } = entry
+                const _node = json || node || {}
+                const _json = JSON.stringify({ method, page, json: { ..._node, parts: [] } })
+                const buffer = recorder([[ Buffer.from(_json) ].concat(parts) ])
+                buffers.push(buffer)
+            } else {
+                const [ object, ...parts ] = entry
+                const json = JSON.stringify(object)
+                const buffer = recorder([ [ Buffer.from(json) ].concat(parts) ])
+                buffers.push(buffer)
+            }
         }
         return Buffer.concat(buffers)
     }
@@ -51,43 +60,31 @@ class RTree {
     })
 
     constructor (destructible, options) {
-        function createTurnstile (name) {
-            if (turnstiles[name]) {
-                return turnstiles[name]
-            }
-            const subDestructible = destructible.durable(name)
-            const turnstile = new Turnstile(subDestructible.durable('turnstile'))
-            subDestructible.destruct(() => {
-                subDestructible.ephemeral('shutdown', async () => {
-                    await turnstile.terminate()
-                })
-            })
-            return turnstile
-        }
         this.cache = options.cache || new Cache
+        this._fractures = {
+            writeahead: new Fracture(destructible.durable($ => $(), 'writeahead'), options.turnstile, () => ({
+                writes: []
+            }), this._writeahead, this),
+            rotate: new Fracture(destructible.durable($ => $(), 'rotate'), options.turnstile, () => ({
+                values: []
+            }), this._rotate, this),
+            vacuum: new Fracture(destructible.durable($ => $(), 'vacuum'), options.turnstile, () => ({
+                values: []
+            }), this._vacuum, this),
+        }
         this._checksum = function () { return 0 }
         this._recorder = Recorder.create(this._checksum)
         this._cache = this.cache.magazine([ options.directory, RTree._instance++ ])
         this._openedAt = Date.now()
         this._version = 0
         this._balance = { split: 5, merge: 2 }
-        const turnstiles = coalesce(options.turnstiles, {})
-        this._fracture = {
-            administrative: new Fracture(createTurnstile('administrative'), this._commit, this),
-            append: new Fracture(createTurnstile('append'), this._append, this)
-        }
-        // **TODO** Common namespaced turnstiles.
-        this._turnstile = new Turnstile(destructible.durable('turnstile'), { turnstiles: 1 })
         this.directory = options.directory
         this._commitId = 0
-        destructible.destruct(() => {
-            this._turnstile.terminate()
-        })
     }
 
     static async open (destructible, options) {
         const rtree = new RTree(destructible, options)
-        return destructible.ephemeral('open', async function () {
+        return destructible.exceptional('open', async function () {
             if (options.create) {
                 await rtree._create()
             } else {
@@ -101,6 +98,7 @@ class RTree {
     }
 
     async _open () {
+        this._writeahead = await WriteAhead.open({ directory: options.directory })
     }
 
     // The Magazine documentation scolds the user who holds a reference
@@ -118,11 +116,13 @@ class RTree {
     //
     async _create () {
         await fs.mkdir(path.resolve(this.directory, '0.0'), { recursive: true })
-        const branch = serialize([{ method: 'add', node: { id: 0, child: '0.1', box: [] } }])
+        const branch = serialize([[{ method: 'add', page: '0.0', id: 0, child: '0.1', box: [], parts: [] }]])
         await fs.writeFile(path.resolve(this.directory, '0.0', 'page'), branch)
         await fs.mkdir(path.resolve(this.directory, '0.1'), { recursive: true })
-        const leaf = serialize([{ method: 'leaf' }])
+        const leaf = serialize([{ method: 'leaf', page: '0.1' }])
         await fs.writeFile(path.resolve(this.directory, '0.1', 'page'), leaf)
+        await fs.mkdir(path.resolve(this.directory, 'wal'))
+        this._writeahead = await WriteAhead.open({ directory: path.resolve(this.directory, 'wal') })
     }
 
     _choose (box, path) {
@@ -195,12 +195,41 @@ class RTree {
     // if it gets merged out of existence while we are iterating.
 
     //
-    _enqeue (version, log, writes, path) {
-        const commit = this._fracture.administrative.enqueue('commit', promise => {
-            return { logs: [], promise, id: this._commitId++ }
-        })
-        commit.logs.push({ version, log, path })
+    _enqueue (keys, log, writes, cartridges) {
+        const commit = this._fractures.writeahead.enqueue('writeahead')
+        commit.writes.push({ keys, log, cartridges })
         writes[commit.id] = commit
+    }
+
+    // Version is timestamp plus ever incrementing increment.
+
+    // Version is consistent for an update because we hold onto everything and
+    // make our log entry synchronously, we push our log entry onto the WAL
+    // synchronously, it is every increasing.
+
+    // We write to the WAL in order. Versions only go up.
+
+    // To play the log we gather up values for a given version, then we see a
+    // commit entry for that version and we apply them. We start every log entry
+    // with a reset instruction to indicate that the previous write did not
+    // complete. Always applied regardless of key. Keep max version in page
+    // memory. Do not apply changes if your version is greater than max version.
+
+    // Thanks to WAL moves are now atomic. They are in the same file. Written to
+    // same file.
+
+    // Could link versions to detect truncations. Truncations of the WAL are
+    // just losses. Truncation of primary file means we look in the WAL and hope
+    // to pick up where we left off.
+
+    // Start version of fill is [ 0, 0 ]. Maybe use Journalist to ensure that we
+    // get a perfect stubby file in place, never have just an empty file due to
+    // a bad initial write. Okay, vacuum and create can use Journalist.
+
+    //
+    async _writeahead ({ canceled, value: { writes } }) {
+        const append = writes.map(({ keys, log }) => ({ keys, body: serialize(log) }))
+        await this._writeahead.write(append)
     }
 
     async _wally (filename, entries, converter) {
@@ -297,20 +326,21 @@ class RTree {
     async load (id) {
         const player = new Player(() => 0)
         const readable = fileSystem.createReadStream(path.resolve(this.directory, id, 'page'))
-        const page = { id: id, items: [], leaf: false, destroyed: false  }
+        const page = { id: id, items: [], leaf: false, destroyed: false, nextId: 0 }
         for await (const chunk of readable) {
             for (const entry of player.split(chunk)) {
-                const header = JSON.parse(entry.parts.splice(0, 1).toString())
+                const header = JSON.parse(entry.parts.shift().toString())
                 switch (header.method) {
                 case 'leaf': {
                         page.leaf = true
                     }
                     break
                 case 'add': {
-                        const { index, found } = find(page.items, header.node.id)
-                        RTree.Error.assert(! found, [ 'INVALID_NODE_ADD', header.node.id ])
-                        header.node.parts.push.apply(header.node.parts, entry.parts.slice(1))
-                        page.items.splice(index, 0, header.node)
+                        const { index, found } = find(page.items, header.id)
+                        RTree.Error.assert(! found, 'INVALID_NODE_ADD', { id: header.id })
+                        page.nextId = Math.max(page.nextId, header.id + 1)
+                        header.parts.push.apply(header.parts, entry.parts)
+                        page.items.splice(index, 0, header)
                     }
                     break
                 }
@@ -372,7 +402,11 @@ class RTree {
 
             //
             paths[0].reverse()
-            const log = []
+            // Okay, they are no longer indempotent, they are now versioned.
+            const log = [[{
+                method: 'version',
+                version: [ this._openedAt, this._version++ ]
+            }]]
             const { entry: { value: leaf } } = paths[0][0]
             // Does this look indempotent to you? You'd have to search the page
             // for the node on replay of the log, but on an in-process  write.
@@ -384,31 +418,32 @@ class RTree {
             // Now you have custom replays so you won't be able to reuse your
             // b-tree serialization.
 
-            // Okay, they are no longer indempotent, they are now versioned.
-            const version = [ this._openedAt, this._version++ ]
-            const node = { id: leaf.nextId++, box: box.points }
-            log.push({
+            const node = { id: leaf.nextId++, box: box.points, parts: [] }
+            const keys = new Set([ leaf.id ])
+            log.push([{
                 method: 'add',
-                version: version,
-                id: leaf.id,
-                node: node,
-                parts: parts
-            })
+                page: leaf.id,
+                ...node,
+            }].concat(parts))
+            node.parts.push.apply(node.parts, parts)
             // Tempting to have the log played in memory and then repeated as
             // part of recovery, but no, let's just do the work here.
             leaf.items.push(node)
             for (let i = 1, I = paths[0].length; i < I; i++) {
                 const { entry: { value: branch }, node } = paths[0][i]
-                // Does this look indempotent to you?
-                log.push({
-                    method: 'extend',
-                    version: version,
-                    id: branch.id,
-                    node: { page: branch.id, node: node.id, box: box.points }
-                })
                 // Tempting to have the log played in memory and then repeated
                 // as part of recovery, but no, let's just do the work here.
-                node.box = new Box(node.box).extend(box.points).points
+                const extended = new Box(node.box).extend(box.points)
+                if (!new Box(node.box).contains(extended)) {
+                    node.box = extended.points
+                    keys.add(branch.id)
+                    log.push([{
+                        method: 'extend',
+                        page: branch.id,
+                        node: node.id,
+                        box: box.points
+                    }])
+                }
             }
 
             // Well, we can split now too, can't we? For this implementation we
@@ -491,7 +526,7 @@ class RTree {
                 }
             }
 
-            this._enqeue(version, log, writes, paths[0])
+            this._enqueue([ ...keys ], log, writes, paths[0])
         }
     }
 
