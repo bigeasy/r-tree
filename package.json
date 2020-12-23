@@ -22,7 +22,8 @@
     },
     "dependencies":
     {
-                            "cadence":                      "4.0.0-alpha.0",
+                            "ascension":                    "3.0.0-alpha.0",
+                            "bintrees":                     "1.0.2",
                             "destructible":                 "7.0.0-alpha.22",
                             "extant":                       "^1.0.20",
                             "fracture":                     "0.3.0-alpha.12",
@@ -32,8 +33,8 @@
                             "reciprocate":                  "0.0.3",
                             "transcript":                   "0.1.3",
                             "turnstile":                    "6.0.0-alpha.37",
-                            "verbatim":                     "0.1.1",
-                            "writeahead":                   "0.0.2"
+                            "writeahead":                   "0.0.2",
+                            "whittle":                      "0.0.0"
     },
     "devDependencies":
     {

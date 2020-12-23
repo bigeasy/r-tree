@@ -3,23 +3,40 @@ const fs = require('fs').promises
 const fileSystem = require('fs')
 const path = require('path')
 const Cache = require('magazine')
-const Box = require('./box').Box
+
+const ascension = require('ascension')
+const whittle = require('whittle')
+
+// Return the first non-`null`-like object.
 const coalesce = require('extant')
+
 const Fracture = require('fracture')
+
 const Destructible = require('destructible')
+
+// An asynchronous write-ahead log.
 const WriteAhead = require('writeahead')
+
 const Trampoline = require('reciprocate')
 
 const Interrupt = require('interrupt')
 
-function find (items, id) {
+// Our bounding rectangle class.
+const Box = require('./box').Box
+
+const comparators = {
+    findId: whittle(ascension([ Number, Number ]), item => item.id, id => id),
+    sortId: whittle(ascension([ Number, Number ]), item => item.id)
+}
+
+function find (comparator, items, id) {
     let mid, low = 0, high = items.length - 1
 
     while (low <= high) {
         mid = low + ((high - low) >>> 1)
-        const compare = id - items[mid].id
-        if (compare < 0) high = mid - 1
-        else if (compare > 0) low = mid + 1
+        const compare = comparator(items[mid].id, id)
+        if (compare > 0) high = mid - 1
+        else if (compare < 0) low = mid + 1
         else return { found: true, index: mid }
     }
 
@@ -49,9 +66,6 @@ const serialize = function () {
         return Buffer.concat(buffers)
     }
 } ()
-
-
-const ROOT = { value: { items: [{ child: '0.0' }] } }
 
 class RTree {
     static _instance = 0
@@ -84,10 +98,11 @@ class RTree {
         this._recorder = Recorder.create(this._checksum)
         this._cache = this.cache.magazine([ options.directory, RTree._instance++ ])
         this._openedAt = Date.now()
-        this._version = 0
         this._balance = { split: 5, merge: 2 }
         this.directory = options.directory
         this._writeId = 0
+        this._version = 0
+        this._nodeId = 0
     }
 
     static async open (destructible, options) {
@@ -124,7 +139,7 @@ class RTree {
     //
     async _create () {
         await fs.mkdir(path.resolve(this.directory, '0.0'), { recursive: true })
-        const branch = serialize([[{ method: 'add', page: '0.0', id: 0, child: '0.1', box: [], parts: [] }]])
+        const branch = serialize([[{ method: 'add', page: '0.0', id: [ 0, 0 ], child: '0.1', box: [], parts: [] }]])
         await fs.writeFile(path.resolve(this.directory, '0.0', 'page'), branch)
         await fs.mkdir(path.resolve(this.directory, '0.1'), { recursive: true })
         const leaf = serialize([{ method: 'leaf', page: '0.1' }])
@@ -273,7 +288,7 @@ class RTree {
                     }
                     break
                 case 'add': {
-                        const { index, found } = find(page.items, header.id)
+                        const { index, found } = find(comparators.findId, page.items, header.id)
                         RTree.Error.assert(! found, 'INVALID_NODE_ADD', { id: header.id })
                         page.nextId = Math.max(page.nextId, header.id + 1)
                         header.parts.push.apply(header.parts, entry.parts)
@@ -355,7 +370,7 @@ class RTree {
             // Now you have custom replays so you won't be able to reuse your
             // b-tree serialization.
 
-            const node = { id: leaf.nextId++, box: box.points, parts: [] }
+            const node = { id: [ this._openedAt, this._nodeId++ ], box: box.points, parts: [] }
             const keys = new Set([ leaf.id ])
             log.push([{
                 method: 'add',
