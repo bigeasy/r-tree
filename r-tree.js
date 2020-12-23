@@ -8,6 +8,7 @@ const coalesce = require('extant')
 const Fracture = require('fracture')
 const Destructible = require('destructible')
 const WriteAhead = require('writeahead')
+const Trampoline = require('reciprocate')
 
 const Interrupt = require('interrupt')
 
@@ -60,10 +61,17 @@ class RTree {
     })
 
     constructor (destructible, options) {
+        let capture
         this.cache = options.cache || new Cache
         this._fractures = {
             writeahead: new Fracture(destructible.durable($ => $(), 'writeahead'), options.turnstile, () => ({
-                writes: []
+                writes: [],
+                id: this._writeId++,
+                latch: {
+                    completed: false,
+                    promise: new Promise(resolve => capture = { resolve }),
+                    ...capture
+                }
             }), this._writeahead, this),
             rotate: new Fracture(destructible.durable($ => $(), 'rotate'), options.turnstile, () => ({
                 values: []
@@ -79,7 +87,7 @@ class RTree {
         this._version = 0
         this._balance = { split: 5, merge: 2 }
         this.directory = options.directory
-        this._commitId = 0
+        this._writeId = 0
     }
 
     static async open (destructible, options) {
@@ -195,9 +203,9 @@ class RTree {
     // if it gets merged out of existence while we are iterating.
 
     //
-    _enqueue (keys, log, writes, cartridges) {
+    _enqueue (keys, log, writes, path) {
         const commit = this._fractures.writeahead.enqueue('writeahead')
-        commit.writes.push({ keys, log, cartridges })
+        commit.writes.push({ keys, log, path })
         writes[commit.id] = commit
     }
 
@@ -227,102 +235,31 @@ class RTree {
     // a bad initial write. Okay, vacuum and create can use Journalist.
 
     //
-    async _writeahead ({ canceled, value: { writes } }) {
+    async _writeahead ({ canceled, value: { writes, latch } }) {
         const append = writes.map(({ keys, log }) => ({ keys, body: serialize(log) }))
         await this._writeahead.write(append)
-    }
-
-    async _wally (filename, entries, converter) {
-        const { _recorder: recorder } = this, buffers = []
-        const handle = await fs.open(filename, 'a')
-        try {
-            let offset = (await handle.stat()).size
-            const buffers = []
-            for (const entry of entries) {
-                const { header, body } = converter(offset, entry)
-                const encoded = recorder([[ header ]])
-                offset += encoded.length + body.length
-                buffers.push(encoded, body)
-            }
-            handle.appendFile(Buffer.concat(buffers))
-            handle.sync()
-        } finally {
-            await handle.close()
-        }
-    }
-
-    async _headers (filename) {
-    }
-
-    async _commit ({ value }) {
-        const ahead = []
-        for (const entry of value.logs) {
-            const { log, version } = entry
-            const grouped = {}
-            for (const entry of log) {
-                grouped[entry.id] = true
-            }
-            ahead.push({ version: version, nodes: log, pages: Object.keys(grouped) })
-        }
-        const filename = path.resolve(this.directory, 'wal')
-        await this._wally(filename, ahead, function (offset, { version, pages, nodes }) {
-            const header = Buffer.from(JSON.stringify({ version, pages: Object.keys(pages) }))
-            return { header: header, body: serialize(nodes) }
-        })
-        value.completed = true
-    }
-
-    async __commit ({ value }) {
-        const { _recorder: recorder } = this, buffers = []
-        const map = new Map
-        const writes = {}
-        for (const entry of value.logs) {
-            const { log, version } = entry
-            const grouped = {}
-            for (const entry of log) {
-                grouped[entry.id] = true
-                writes[entry.id] || (writes[entry.id] = [])
-                writes[entry.id].push(entry)
-            }
-            map.set(version, grouped)
-            const commit = Buffer.from(JSON.stringify({ version, pages: Object.keys(grouped) }))
-            buffers.push(recorder([ commit ]))
-        }
-        const filename = path.resolve(this.directory, 'commits', value.logs[0].version.join('-'))
-        await fs.mkdir(path.dirname(filename), { recursive: true })
-        await fs.writeFile(filename, Buffer.concat(buffers))
-        const appends = {}
-        for (const id in writes) {
-            const append = this._fracture.append.enqueue(id, promise => {
-                return { writes: [], promise, id: this._commitId++ }
-            })
-            append.writes.push.apply(append.writes, writes[id])
-            appends[append.id] = appends
-        }
-        await this.flush(appends)
-        await fs.unlink(filename)
-        value.completed = true
-    }
-
-    async _write ({ key, value }) {
-        const buffers = []
-        for (const write of value.writes) {
-            buffers.append(serialize(write))
-        }
-        fs.appendFile(path.resolve(this.directory, key, 'page'), Buffer.concat(buffers))
-        value.completed = true
+        writes.forEach(write => write.path.forEach(part => part.entry.release()))
+        latch.completed = true
+        latch.resolve.call(null)
     }
 
     async flush (writes) {
         for (const key in writes) {
-            if (!writes[key].completed) {
-                await writes[key].promise
+            if (!writes[key].latch.completed) {
+                await writes[key].latch.promise
             }
         }
     }
 
     // **TODO** Gather by version and clear if you see a rollback.
     // **TODO** Determine the greatest node id per page.
+
+    // Note that because of how our cache interface works, if we are in a in a
+    // race where two strands are loading loading the page at the same time, the
+    // first one to call `hold()` will be the cached entry, the second entry
+    // will be discarded.
+
+    //
     async load (id) {
         const player = new Player(() => 0)
         const readable = fileSystem.createReadStream(path.resolve(this.directory, id, 'page'))
@@ -532,6 +469,74 @@ class RTree {
 
     insert (trampoline, box, parts, writes = {}) {
         this._insert(trampoline, box, parts, writes, [[]])
+    }
+    //
+
+    // For the first pass, a naive implementation that might load the entire
+    // tree into memory, or else we could just do MVCC.
+
+    // We could, but reshaping the tree would be difficult. We obviously simply
+    // mark an entry as deleted, but we don't actually delete it until later.
+
+    // Could leave the nodes sorted by id, so when we decend we can more easily
+    // skip already considered entries.
+
+    // We are only ever growing nodes or deleting them. If we have an interation
+    // of the three that marks all the candidates in the root by version
+    // somehow, when those iterations complete we can start to delete nodes.
+
+    // It will sort itself out. We need to have an iterator iterface, though.
+
+    //
+    _descend (box, found, cartridges) {
+        let candidates = [ '0.0' ]
+        while (candidates.length != 0) {
+            const candidate = candidates.shift()
+            const cartridge = this._cache.hold(candidate)
+            if (cartridge == null) {
+                return candidate
+            }
+            cartridges[0].push(cartridge)
+            const page = cartridge.value
+            if (page.leaf) {
+                for (const item of page.items) {
+                    if (new Box(item.box).intersects(box)) {
+                        found.push(item)
+                    }
+                }
+            } else {
+                for (const item of page.items) {
+                    if (new Box(item.box).intersects(box)) {
+                        candidates.push(item.child)
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    _search (box, cartridges, trampoline, consumer) {
+        cartridges.unshift([])
+        const found = [], miss = this._descend(box, found, cartridges)
+        cartridges.pop().forEach(cartridge => cartridge.release())
+        if (miss == null) {
+            cartridges.pop().forEach(cartridge => cartridge.release())
+            consumer(found)
+        } else {
+            trampoline.promised(async () => {
+                cartridges[0].push(await this.load(miss))
+                this._search(box, cartridges, trampoline, consumer)
+            })
+        }
+    }
+
+    search (box, trampoline = new Trampoline, consumer = null) {
+        if (consumer == null) {
+            this._search(box, [[]], trampoline, value => trampoline.set(value))
+            return trampoline
+        } else {
+            this._search(box, [[]], trampoline, consumer)
+        }
     }
 }
 

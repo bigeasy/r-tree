@@ -1,4 +1,4 @@
-require('proof')(1, async okay => {
+require('proof')(2, async okay => {
     const Box = require('../box').Box
     const RTree = require('..')
 
@@ -44,6 +44,10 @@ require('proof')(1, async okay => {
         while (trampoline.seek()) {
             await trampoline.shift()
         }
+
+        const found = await rtree.search(new Box([[ 0, 0 ], [ 3, 3 ]]))
+
+        okay(found.map(node => node.parts[0].toString()), [ 'a' ], 'found')
 
         destructible.destroy()
     })

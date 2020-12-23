@@ -42,6 +42,15 @@ class Box {
             box._points[1][0] <= this._points[1][0] &&
             box._points[1][1] <= this._points[1][1]
     }
+
+    intersects (box) {
+        return box._points.length == 2 &&
+            this._points.length == 2 &&
+            box._points[1][0] >= this._points[0][0] &&
+            box._points[0][0] <= this._points[1][0] &&
+            box._points[1][1] >= this._points[0][1] &&
+            box._points[0][1] <= this._points[1][1]
+    }
 }
 
 exports.Box = Box
