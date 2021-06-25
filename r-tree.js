@@ -96,7 +96,7 @@ class RTree {
         }
         this._checksum = function () { return 0 }
         this._recorder = Recorder.create(this._checksum)
-        this._cache = this.cache.magazine([ options.directory, RTree._instance++ ])
+        this._cache = this.cache.subordinate([ options.directory, RTree._instance++ ])
         this._openedAt = Date.now()
         this._balance = { split: 5, merge: 2 }
         this.directory = options.directory
