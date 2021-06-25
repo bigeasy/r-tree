@@ -71,19 +71,24 @@ class RTree {
         INVALID_NODE_ADD: 'invalid duplicate node, node with id %d already exists in page'
     })
 
-    constructor (destructible, options) {
+    constructor (destructible, { options }) {
         let capture
         this.cache = options.cache || new Cache
+        this.writeahead = options.writeahead
         this._fractures = {
-            writeahead: new Fracture(destructible.durable($ => $(), 'writeahead'), options.turnstile, () => ({
-                writes: [],
-                id: this._writeId++,
-                latch: {
-                    completed: false,
-                    promise: new Promise(resolve => capture = { resolve }),
-                    ...capture
-                }
-            }), this._writeahead, this)
+            writeahead: new Fracture(destructible.durable($ => $(), 'writeahead'), {
+                turnstile: options.turnstile,
+                value: () => ({
+                    writes: [],
+                    id: this._writeId++,
+                    latch: {
+                        completed: false,
+                        promise: new Promise(resolve => capture = { resolve }),
+                        ...capture
+                    }
+                }),
+                worker: this._writeahead.bind(this)
+            })
         }
         this._checksum = function () { return 0 }
         this._recorder = Recorder.create(this._checksum)
@@ -96,23 +101,21 @@ class RTree {
         this._nodeId = 0
     }
 
-    static async open (destructible, options) {
-        const rtree = new RTree(destructible, options)
-        return destructible.exceptional('open', async function () {
-            if (options.create) {
-                await rtree._create()
-            } else {
-                await rtree._open()
-            }
-            return rtree
-        })
+    static async open (options) {
+        if (options.create) {
+            await fs.mkdir(path.resolve(options.directory, '0.0'), { recursive: true })
+            const branch = serialize([[{ method: 'add', page: '0.0', id: [ 0, 0 ], child: '0.1', box: [], parts: [] }]])
+            await fs.writeFile(path.resolve(options.directory, '0.0', 'page'), branch)
+            await fs.mkdir(path.resolve(options.directory, '0.1'), { recursive: true })
+            const leaf = serialize([{ method: 'leaf', page: '0.1' }])
+            await fs.writeFile(path.resolve(options.directory, '0.1', 'page'), leaf)
+            await fs.mkdir(path.resolve(options.directory, 'wal'))
+        } else {
+        }
+        return { options }
     }
 
     async _exists () {
-    }
-
-    async _open () {
-        this._writeahead = await WriteAhead.open({ directory: options.directory })
     }
 
     // The Magazine documentation scolds the user who holds a reference
@@ -129,14 +132,6 @@ class RTree {
 
     //
     async _create () {
-        await fs.mkdir(path.resolve(this.directory, '0.0'), { recursive: true })
-        const branch = serialize([[{ method: 'add', page: '0.0', id: [ 0, 0 ], child: '0.1', box: [], parts: [] }]])
-        await fs.writeFile(path.resolve(this.directory, '0.0', 'page'), branch)
-        await fs.mkdir(path.resolve(this.directory, '0.1'), { recursive: true })
-        const leaf = serialize([{ method: 'leaf', page: '0.1' }])
-        await fs.writeFile(path.resolve(this.directory, '0.1', 'page'), leaf)
-        await fs.mkdir(path.resolve(this.directory, 'wal'))
-        this._writeahead = await WriteAhead.open({ directory: path.resolve(this.directory, 'wal') })
     }
 
     _choose (box, path) {
@@ -209,10 +204,9 @@ class RTree {
     // if it gets merged out of existence while we are iterating.
 
     //
-    _enqueue (keys, log, writes, path) {
-        const commit = this._fractures.writeahead.enqueue('writeahead')
-        commit.writes.push({ keys, log, path })
-        writes[commit.id] = commit
+    _enqueue (keys, log, path) {
+        const append = writes.map(({ keys, log }) => ({ keys, buffer: serialize(log) }))
+        return this._fractures.writeahead.enqueue(Fracture.stack(), 'writeahead', value => value.writes.push({ keys, log, path }))
     }
 
     // Version is timestamp plus ever incrementing increment.
@@ -241,9 +235,10 @@ class RTree {
     // a bad initial write. Okay, vacuum and create can use Journalist.
 
     //
-    async _writeahead ({ canceled, value: { writes, latch } }) {
-        const append = writes.map(({ keys, log }) => ({ keys, body: serialize(log) }))
-        await this._writeahead.write(append)
+    async _writeahead ({ stack, value: { writes, latch } }) {
+        const append = writes.map(({ keys, log }) => ({ keys, buffer: serialize(log) }))
+        console.log(append)
+        await this.writeahead.write(stack, append)
         writes.forEach(write => write.path.forEach(part => part.entry.release()))
         latch.completed = true
         latch.resolve.call(null)
@@ -299,14 +294,14 @@ class RTree {
     // returns the id of the missed page.
 
     //
-    _insert (trampoline, box, parts, writes, paths) {
+    _insert (trampoline, box, parts, paths) {
         paths.unshift([])
         const miss = this._choose(box, paths[0])
         paths.pop().forEach(part => part.entry.release())
         if (miss != null) {
             trampoline.promised(async () => {
                 paths[0].push({ entry: await this.load(miss) })
-                this._insert(trampoline, box, parts, writes, paths)
+                this._insert(trampoline, box, parts, paths)
             })
         } else {
             // All inserts and adjustments of areas must be synchronous, the
@@ -469,12 +464,12 @@ class RTree {
                 }
             }
 
-            this._enqueue([ ...keys ], log, writes, paths[0])
+            this._enqueue([ ...keys ], log, paths[0])
         }
     }
 
-    insert (trampoline, box, parts, writes = {}) {
-        this._insert(trampoline, box, parts, writes, [[]])
+    insert (trampoline, box, parts) {
+        this._insert(trampoline, box, parts, [[]])
     }
     //
 

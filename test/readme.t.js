@@ -7,6 +7,7 @@ require('proof')(2, async okay => {
     const Trampoline = require('reciprocate')
     const Destructible = require('destructible')
     const Cache = require('magazine')
+    const WriteAhead = require('writeahead')
 
     const fs = require('fs').promises
     const path = require('path')
@@ -25,13 +26,15 @@ require('proof')(2, async okay => {
     const turnstile = new Turnstile(destructible.durable('turnstile'))
 
     //
-    destructible.rescue($ => $(), 'test', async () => {
-        const rtree = await RTree.open(destructible.durable($ => $(), 'r-tree'), {
+    destructible.ephemeral($ => $(), 'test', async () => {
+        const writeahead = new WriteAhead(destructible.durable('writeahead'), turnstile, await WriteAhead.open({ directory }))
+        const rtree = new RTree(destructible.durable($ => $(), 'r-tree'), await RTree.open({
             turnstile: turnstile,
+            writeahead: writeahead,
             directory: directory,
             cache: new Cache,
             create: true
-        })
+        }))
 
         const trampoline = new Trampoline
 
@@ -49,10 +52,12 @@ require('proof')(2, async okay => {
 
         okay(found.map(node => node.parts[0].toString()), [ 'a' ], 'found')
 
+        await new Promise(resolve => setTimeout(resolve, 1000))
+
         destructible.destroy()
     })
 
-    await destructible.rejected
+    await destructible.promise
 
     okay('done')
 })
