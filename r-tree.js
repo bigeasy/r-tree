@@ -7,9 +7,6 @@ const Cache = require('magazine')
 const ascension = require('ascension')
 const whittle = require('whittle')
 
-// Return the first non-`null`-like object.
-const coalesce = require('extant')
-
 const Fracture = require('fracture')
 
 const Destructible = require('destructible')

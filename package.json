@@ -25,7 +25,6 @@
                             "ascension":                    "3.0.0-alpha.0",
                             "bintrees":                     "1.0.2",
                             "destructible":                 "7.0.0-alpha.22",
-                            "extant":                       "^2.0.0-alpha.0",
                             "fracture":                     "0.3.0-alpha.12",
                             "interrupt":                    "11.0.0-alpha.20",
                             "keyify":                       "^2.0.5",
