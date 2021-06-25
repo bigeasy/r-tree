@@ -83,13 +83,7 @@ class RTree {
                     promise: new Promise(resolve => capture = { resolve }),
                     ...capture
                 }
-            }), this._writeahead, this),
-            rotate: new Fracture(destructible.durable($ => $(), 'rotate'), options.turnstile, () => ({
-                values: []
-            }), this._rotate, this),
-            vacuum: new Fracture(destructible.durable($ => $(), 'vacuum'), options.turnstile, () => ({
-                values: []
-            }), this._vacuum, this),
+            }), this._writeahead, this)
         }
         this._checksum = function () { return 0 }
         this._recorder = Recorder.create(this._checksum)
