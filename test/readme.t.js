@@ -7,6 +7,7 @@ require('proof')(2, async okay => {
     const Trampoline = require('reciprocate')
     const Destructible = require('destructible')
     const Cache = require('magazine')
+    const WriteAhead = require('writeahead')
 
     const fs = require('fs').promises
     const path = require('path')
@@ -25,22 +26,24 @@ require('proof')(2, async okay => {
     const turnstile = new Turnstile(destructible.durable('turnstile'))
 
     //
-    destructible.rescue($ => $(), 'test', async () => {
-        const rtree = await RTree.open(destructible.durable($ => $(), 'r-tree'), {
+    destructible.ephemeral($ => $(), 'test', async () => {
+        const writeahead = new WriteAhead(destructible.durable('writeahead'), turnstile, await WriteAhead.open({ directory }))
+        const rtree = new RTree(destructible.durable($ => $(), 'r-tree'), await RTree.open({
             turnstile: turnstile,
+            writeahead: writeahead,
             directory: directory,
             cache: new Cache,
             create: true
-        })
+        }))
 
         const trampoline = new Trampoline
 
-        rtree.insert(trampoline, new Box([[ 0, 0 ], [ 5, 5 ]]), [ Buffer.from('a') ])
+        rtree.insert(trampoline, Fracture.stack(), new Box([[ 0, 0 ], [ 5, 5 ]]), [ Buffer.from('a') ])
         while (trampoline.seek()) {
             await trampoline.shift()
         }
 
-        rtree.insert(trampoline, new Box([[ 5, 5 ], [ 10, 10 ]]), [ Buffer.from('b') ])
+        rtree.insert(trampoline, Fracture.stack(), new Box([[ 5, 5 ], [ 10, 10 ]]), [ Buffer.from('b') ])
         while (trampoline.seek()) {
             await trampoline.shift()
         }
@@ -52,7 +55,7 @@ require('proof')(2, async okay => {
         destructible.destroy()
     })
 
-    await destructible.rejected
+    await destructible.promise
 
     okay('done')
 })
