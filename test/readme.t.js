@@ -38,12 +38,12 @@ require('proof')(2, async okay => {
 
         const trampoline = new Trampoline
 
-        rtree.insert(trampoline, new Box([[ 0, 0 ], [ 5, 5 ]]), [ Buffer.from('a') ])
+        rtree.insert(trampoline, Fracture.stack(), new Box([[ 0, 0 ], [ 5, 5 ]]), [ Buffer.from('a') ])
         while (trampoline.seek()) {
             await trampoline.shift()
         }
 
-        rtree.insert(trampoline, new Box([[ 5, 5 ], [ 10, 10 ]]), [ Buffer.from('b') ])
+        rtree.insert(trampoline, Fracture.stack(), new Box([[ 5, 5 ], [ 10, 10 ]]), [ Buffer.from('b') ])
         while (trampoline.seek()) {
             await trampoline.shift()
         }
@@ -51,8 +51,6 @@ require('proof')(2, async okay => {
         const found = await rtree.search(new Box([[ 0, 0 ], [ 3, 3 ]]))
 
         okay(found.map(node => node.parts[0].toString()), [ 'a' ], 'found')
-
-        await new Promise(resolve => setTimeout(resolve, 1000))
 
         destructible.destroy()
     })

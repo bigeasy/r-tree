@@ -75,21 +75,6 @@ class RTree {
         let capture
         this.cache = options.cache || new Cache
         this.writeahead = options.writeahead
-        this._fractures = {
-            writeahead: new Fracture(destructible.durable($ => $(), 'writeahead'), {
-                turnstile: options.turnstile,
-                value: () => ({
-                    writes: [],
-                    id: this._writeId++,
-                    latch: {
-                        completed: false,
-                        promise: new Promise(resolve => capture = { resolve }),
-                        ...capture
-                    }
-                }),
-                worker: this._writeahead.bind(this)
-            })
-        }
         this._checksum = function () { return 0 }
         this._recorder = Recorder.create(this._checksum)
         this._cache = this.cache.subordinate([ options.directory, RTree._instance++ ])
@@ -235,13 +220,8 @@ class RTree {
     // a bad initial write. Okay, vacuum and create can use Journalist.
 
     //
-    async _writeahead ({ stack, value: { writes, latch } }) {
-        const append = writes.map(({ keys, log }) => ({ keys, buffer: serialize(log) }))
-        console.log(append)
-        await this.writeahead.write(stack, append)
-        writes.forEach(write => write.path.forEach(part => part.entry.release()))
-        latch.completed = true
-        latch.resolve.call(null)
+    _write (stack, keys, log, path) {
+        return promise
     }
 
     async flush (writes) {
@@ -294,14 +274,14 @@ class RTree {
     // returns the id of the missed page.
 
     //
-    _insert (trampoline, box, parts, paths) {
+    _insert (trampoline, stack, box, parts, paths) {
         paths.unshift([])
         const miss = this._choose(box, paths[0])
         paths.pop().forEach(part => part.entry.release())
         if (miss != null) {
             trampoline.promised(async () => {
                 paths[0].push({ entry: await this.load(miss) })
-                this._insert(trampoline, box, parts, paths)
+                this._insert(trampoline, stack, box, parts, paths)
             })
         } else {
             // All inserts and adjustments of areas must be synchronous, the
@@ -464,12 +444,13 @@ class RTree {
                 }
             }
 
-            this._enqueue([ ...keys ], log, paths[0])
+            this.writeahead.write(stack, [{ keys: [ ...keys ], buffer: serialize(log) }])
+            paths[0].forEach(part => part.entry.release())
         }
     }
 
-    insert (trampoline, box, parts) {
-        this._insert(trampoline, box, parts, [[]])
+    insert (trampoline, stack, box, parts) {
+        this._insert(trampoline, stack, box, parts, [[]])
     }
     //
 
